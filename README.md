@@ -8,6 +8,13 @@ defines custom functions or uses a command-line interface.
 3. Set `OPENROUTER_API_KEY` in your environment and run `python extractor.py`.
    `MAX_NEW_CALLS` limits new requests in that run (default 20; set it to `0` to inspect the archive without paying). The extractor detects language, reads HTML sections and individual PDF pages, sends Russian problem units to OpenRouter, checks the returned boundaries and fields, then writes eligible English PDFs to `output/`.
 
+For GitHub Actions, add a repository secret named `OPENROUTER_API_KEY` with the
+OpenRouter key as its value. The manual workflow defaults to zero paid calls
+and only the four required 2009 units. Enter a call limit explicitly for a
+live run. The workflow uploads the SQLite database, source files, and outputs
+as an artifact and caches them for the next run, so a new runner resumes from
+the saved database. Keep the artifact: GitHub caches can expire.
+
 The one table is `data/archive.sqlite` → `source`. `archive.py` creates only
 `id`, `href`, `locator`, and `filepath`. `extractor.py` adds columns for source
 hash, language, classification, problem count, status, question text, English,
@@ -41,4 +48,6 @@ for the new repository; GitHub secrets from another repository are not shared.
 Sources with ambiguous labels, incomplete sets, unreadable text, or figures
 needing placement are marked `needs_review`. Those sources cannot produce an
 automatically accepted PDF. Generated PDFs are opened again and page counted;
-semantic and visual inspection is still required for final delivery.
+their rows become `rendered`, which means a file exists and passed technical
+checks. It does not mean the translation has had independent semantic or visual
+review. That inspection is still required for final delivery.

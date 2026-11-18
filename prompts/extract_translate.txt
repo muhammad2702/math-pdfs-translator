@@ -14,6 +14,9 @@ Return one JSON object with a "sets" array. Each set has:
   first_line and last_line (zero-based inclusive indexes into the supplied
   source lines), points (a string preserving any subpart scores), author (the
   source spelling), and english (the full problem statement in English).
+- notes: an array of explanatory notes attached to this set, each with
+  first_line, last_line, and english. Preserve notes after the final problem;
+  use an empty array only if there are none.
 
 Keep mathematical notation, numbers, conditions, subparts, point values, and
 authors. Do not infer that тренировочный is basic or основной is advanced.

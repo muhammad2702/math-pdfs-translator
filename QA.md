@@ -8,6 +8,10 @@
 - The 2009 Basic sources are HTML sections `turnir31otm` and `turnir31ots` in
   the 31st tournament webpage. The Advanced source is `os31sl.pdf`, whose
   first two pages cover the two class groups.
+- Independent source checks found 5 Junior Basic questions, 5 Senior Basic
+  questions plus an explanatory note, and 7 questions on each of the two
+  Advanced PDF pages. All four units were detected as Russian; their headings
+  match the required group, variant, and date. Saved source hashes were checked.
 - Several historical PDFs expose garbled text through PyMuPDF. They require
   review rather than an English-language skip. Some historical webpages also
   contain broken or repeated section anchors. These remain unresolved.
@@ -16,3 +20,6 @@
 - The four required English PDFs have **not** been generated or visually
   inspected in this fresh repository. A paid model run and page-by-page review
   remain necessary before claiming assignment completion.
+- The GitHub repository exists, but the code has not been pushed. The
+  `OPENROUTER_API_KEY` secret was added by the user; no live model run has been
+  started from this new repository.

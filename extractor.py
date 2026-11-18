@@ -26,6 +26,9 @@ model = "google/gemini-2.5-flash"
 prompt = Path("prompts/extract_translate.txt").read_text(encoding="utf-8")
 detector = LanguageDetectorBuilder.from_languages(Language.ENGLISH, Language.RUSSIAN).build()
 font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+months = {"января": 1, "февраля": 2, "марта": 3, "апреля": 4,
+          "мая": 5, "июня": 6, "июля": 7, "августа": 8,
+          "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12}
 calls = 0
 
 with sqlite3.connect(database) as db:
@@ -56,9 +59,15 @@ with sqlite3.connect(database) as db:
     db.commit()
 
     units = db.execute("""SELECT * FROM source WHERE filepath IS NOT NULL
-        AND (record_type='pdf_page' OR (filepath LIKE '%.html' AND locator!=''))
-        AND (record_type IS NULL OR record_type!='question')
+        AND (record_type='pdf_page' OR
+             (record_type IS NULL AND filepath LIKE '%.html' AND locator!=''))
         ORDER BY CASE WHEN href LIKE '%/31/%' THEN 0 ELSE 1 END, href, locator""").fetchall()
+    if os.environ.get("DEMO_ONLY") == "1":
+        units = [unit for unit in units if
+                 (unit["href"].endswith("/31/index.php") and
+                  unit["locator"] in ("turnir31otm", "turnir31ots")) or
+                 (unit["href"].endswith("/31/os31sl.pdf") and
+                  unit["locator"] in ("p1", "p2"))]
 
     for unit in units:
         if unit["status"] in ("translated", "model_sent", "needs_review", "outside_scope"):
@@ -101,6 +110,12 @@ with sqlite3.connect(database) as db:
 
         lines = [line.strip() for line in source.splitlines() if line.strip()]
         prose = " ".join(lines)
+        heading = " ".join(lines[:8]).lower()
+        date_match = re.search(r"\b(\d{1,2})\s+(" + "|".join(months) + r")\s+(\d{4})\b", heading)
+        source_date = (f"{date_match.group(3)}-{months[date_match.group(2)]:02d}-{int(date_match.group(1)):02d}"
+                       if date_match else None)
+        visible_numbers = [int(match.group(1)) for line in lines
+                           if (match := re.match(r"^(\d+)\.\s+", line))]
         language = detector.detect_language_of(prose) if len(prose) >= 80 else None
         code = "en" if language == Language.ENGLISH else "ru" if language == Language.RUSSIAN else "unknown"
         letters = [char for char in prose if char.isalpha()]
@@ -153,6 +168,9 @@ with sqlite3.connect(database) as db:
                 db.execute("UPDATE source SET status='outside_scope' WHERE id=?", (unit["id"],))
                 db.commit()
                 continue
+            model_numbers = [question["number"] for group in groups for question in group["questions"]]
+            if visible_numbers and visible_numbers != model_numbers:
+                raise ValueError("Model question count disagrees with the source markers")
             pending = []
             for group in groups:
                 age = group["age_group"]
@@ -169,14 +187,18 @@ with sqlite3.connect(database) as db:
                     raise ValueError("Junior is not stated in the source")
                 if age == "senior" and not re.search(r"10\s*[-–—]\s*11|\bsenior\b", prose, re.I):
                     raise ValueError("Senior is not stated in the source")
-                if not re.fullmatch(r"\d{4}-\d\d-\d\d", str(date)) or not group["complete"]:
+                if date != source_date or not group["complete"]:
                     raise ValueError("Date or complete set boundary is uncertain")
                 if not questions or [q["number"] for q in questions] != list(range(1, len(questions) + 1)):
                     raise ValueError("Question numbers are incomplete or out of order")
+                if any(re.match(r"^(?:Примечание|Note)\s*:", line, re.I) for line in lines) and not group.get("notes"):
+                    raise ValueError("Source explanatory note was omitted")
                 for question in questions:
                     first, last = question["first_line"], question["last_line"]
                     if not (isinstance(first, int) and isinstance(last, int) and 0 <= first <= last < len(lines)):
                         raise ValueError("Question line range is outside the source")
+                    if visible_numbers and not re.match(rf"^{question['number']}\.\s+", lines[first]):
+                        raise ValueError("Model question start does not match the source")
                     original = "\n".join(lines[first:last + 1])
                     points = str(question["points"])
                     author = str(question["author"])
@@ -188,8 +210,21 @@ with sqlite3.connect(database) as db:
                     if any(english_numbers[number] > source_numbers[number] for number in english_numbers):
                         raise ValueError("The English introduces a number absent from the source")
                     pending.append((unit["href"], unit["locator"] + f":{age}:{difficulty}:q{question['number']}",
-                                    unit["filepath"], "question", "review_passed", code, source_hash,
+                                    unit["filepath"], "question", "validated", code, source_hash,
                                     age, difficulty, date, question["number"], points, author, original,
+                                    english, f"output/{age}/{difficulty}/{date}.pdf"))
+                for note_index, note in enumerate(group.get("notes", []), 1):
+                    first, last = note["first_line"], note["last_line"]
+                    if not (isinstance(first, int) and isinstance(last, int) and
+                            0 <= first <= last < len(lines) and first > questions[-1]["last_line"]):
+                        raise ValueError("Note boundaries do not follow the questions")
+                    original = "\n".join(lines[first:last + 1])
+                    english = str(note["english"]).strip()
+                    if not english or not original:
+                        raise ValueError("Explanatory note is empty")
+                    pending.append((unit["href"], unit["locator"] + f":{age}:{difficulty}:note{note_index}",
+                                    unit["filepath"], "note", "validated", code, source_hash,
+                                    age, difficulty, date, None, None, None, original,
                                     english, f"output/{age}/{difficulty}/{date}.pdf"))
             if has_graphics:
                 raise ValueError("Figure found; its placement in the English PDF needs review")
@@ -199,36 +234,41 @@ with sqlite3.connect(database) as db:
                      difficulty,set_date,question_number,points,author,source_text,english,output_filepath)
                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", entry)
             db.execute("UPDATE source SET status='translated',problem_count=? WHERE id=?",
-                       (len(pending), unit["id"]))
+                       (sum(entry[3] == "question" for entry in pending), unit["id"]))
             db.commit()
-            print(f"Translated {unit['href']}#{unit['locator']}: {len(pending)} questions, ${cost:.6f}")
+            print(f"Translated {unit['href']}#{unit['locator']}: "
+                  f"{sum(entry[3] == 'question' for entry in pending)} questions, ${cost:.6f}")
         except (ValueError, KeyError, TypeError, OSError) as error:
             db.execute("UPDATE source SET status='needs_review' WHERE id=?", (unit["id"],))
             db.commit()
             print(f"Needs review: {unit['href']}#{unit['locator']}: {error}")
 
-    outputs = db.execute("""SELECT output_filepath FROM source WHERE record_type='question'
+    outputs = db.execute("""SELECT output_filepath FROM source WHERE record_type IN ('question','note')
         GROUP BY output_filepath ORDER BY output_filepath""").fetchall()
     for (destination,) in outputs:
-        questions = db.execute("""SELECT * FROM source WHERE record_type='question'
-            AND output_filepath=? ORDER BY question_number""", (destination,)).fetchall()
-        if not questions or any(q["status"] not in ("review_passed", "verified") for q in questions):
+        items = db.execute("""SELECT * FROM source WHERE record_type IN ('question','note')
+            AND output_filepath=? ORDER BY CASE WHEN record_type='note' THEN 1 ELSE 0 END,
+            question_number, id""", (destination,)).fetchall()
+        questions = [item for item in items if item["record_type"] == "question"]
+        if not questions or any(item["status"] not in ("validated", "rendered") for item in items):
             continue
         if [q["question_number"] for q in questions] != list(range(1, len(questions) + 1)):
             print(f"Needs review: incomplete output {destination}")
             continue
         path = Path(destination)
-        if path.is_file() and all(q["status"] == "verified" for q in questions):
+        if path.is_file() and all(item["status"] == "rendered" for item in items):
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         pdf = pymupdf.open()
-        for question in questions:
+        for question in items:
             page = pdf.new_page(width=595, height=842)
             page.insert_font(fontname="dejavu", fontfile=font)
             page.insert_text((40, 50), "Tournament of Towns", fontname="dejavu", fontsize=16)
             page.insert_text((40, 75), f"{question['age_group'].title()} · {question['difficulty'].title()} · {question['set_date']}",
                              fontname="dejavu", fontsize=11)
-            page.insert_text((40, 110), f"Problem {question['question_number']} ({question['points']} points)",
+            heading = (f"Problem {question['question_number']} ({question['points']} points)"
+                       if question["record_type"] == "question" else "Note")
+            page.insert_text((40, 110), heading,
                              fontname="dejavu", fontsize=12)
             y = 145
             for paragraph in question["english"].splitlines():
@@ -239,13 +279,14 @@ with sqlite3.connect(database) as db:
                         y = 50
                     page.insert_text((40, y), line, fontname="dejavu", fontsize=11)
                     y += 17
-            page.insert_text((40, min(y + 25, 810)), question["author"], fontname="dejavu", fontsize=10)
+            if question["author"]:
+                page.insert_text((40, min(y + 25, 810)), question["author"], fontname="dejavu", fontsize=10)
         pdf.save(path)
         pdf.close()
         with pymupdf.open(path) as check:
             if check.page_count < len(questions):
                 raise ValueError(f"PDF page count too small: {path}")
-        db.execute("UPDATE source SET status='verified' WHERE record_type='question' AND output_filepath=?",
+        db.execute("UPDATE source SET status='rendered' WHERE record_type IN ('question','note') AND output_filepath=?",
                    (destination,))
         db.commit()
         print(f"Saved {path}")
