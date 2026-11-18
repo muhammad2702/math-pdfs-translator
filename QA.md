@@ -11,6 +11,8 @@
 - Several historical PDFs expose garbled text through PyMuPDF. They require
   review rather than an English-language skip. Some historical webpages also
   contain broken or repeated section anchors. These remain unresolved.
+- English control: `fall-37-A-eng-auth.pdf` pages 1 and 2 were marked
+  `skipped_english`. Both have no model-call record and no output PDF path.
 - The four required English PDFs have **not** been generated or visually
   inspected in this fresh repository. A paid model run and page-by-page review
   remain necessary before claiming assignment completion.
