@@ -20,6 +20,8 @@
 - The four required English PDFs have **not** been generated or visually
   inspected in this fresh repository. A paid model run and page-by-page review
   remain necessary before claiming assignment completion.
-- The GitHub repository exists, but the code has not been pushed. The
-  `OPENROUTER_API_KEY` secret was added by the user; no live model run has been
-  started from this new repository.
+- The code is published in the GitHub repository. The
+  `OPENROUTER_API_KEY` secret was added by the user. The first live workflow
+  reached OpenRouter, but all four requests returned HTTP 401. It produced no
+  PDFs and recorded $0 spend. A later code change stops on the first 401 and
+  marks that source `auth_failed` for a retry after the key is corrected.

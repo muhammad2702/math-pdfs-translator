@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sqlite3
 import textwrap
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup, UnicodeDammit
@@ -149,7 +150,8 @@ with sqlite3.connect(database) as db:
         request = Request("https://openrouter.ai/api/v1/chat/completions",
                           data=json.dumps(payload).encode(),
                           headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-        db.execute("UPDATE source SET status='model_sent',model_name=?,model_calls=1 WHERE id=?",
+        db.execute("""UPDATE source SET status='model_sent',model_name=?,
+            model_calls=coalesce(model_calls,0)+1 WHERE id=?""",
                    (model, unit["id"]))
         db.commit()
         calls += 1
@@ -238,6 +240,14 @@ with sqlite3.connect(database) as db:
             db.commit()
             print(f"Translated {unit['href']}#{unit['locator']}: "
                   f"{sum(entry[3] == 'question' for entry in pending)} questions, ${cost:.6f}")
+        except HTTPError as error:
+            if error.code == 401:
+                db.execute("UPDATE source SET status='auth_failed' WHERE id=?", (unit["id"],))
+                db.commit()
+                raise SystemExit("OpenRouter rejected the repository API key (401); stop without further requests")
+            db.execute("UPDATE source SET status='needs_review' WHERE id=?", (unit["id"],))
+            db.commit()
+            print(f"Needs review: {unit['href']}#{unit['locator']}: HTTP {error.code}")
         except (ValueError, KeyError, TypeError, OSError) as error:
             db.execute("UPDATE source SET status='needs_review' WHERE id=?", (unit["id"],))
             db.commit()

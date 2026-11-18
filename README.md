@@ -42,7 +42,9 @@ WHERE record_type='question' GROUP BY output_filepath;
 restart will not blindly pay for it again. Actual per-call cost is saved when
 OpenRouter reports it. The script stops at $4.50 locally; the supplied key's
 $5 hard cap remains the final spending limit. Missing cost data stops further
-calls. Set `MAX_NEW_CALLS=0` for a free inspection run. Use a restricted key
+calls. A rejected key stops the run on the first HTTP 401 and marks the unit
+`auth_failed`, which can be retried after the secret is corrected. Set
+`MAX_NEW_CALLS=0` for a free inspection run. Use a restricted key
 for the new repository; GitHub secrets from another repository are not shared.
 
 Sources with ambiguous labels, incomplete sets, unreadable text, or figures
