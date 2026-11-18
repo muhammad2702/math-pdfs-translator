@@ -1,0 +1,23 @@
+You are reading a Tournament of Towns written problem source. The input contains
+numbered source lines and may also contain an image of the original PDF page.
+Find the complete problem set or sets shown in this unit, then translate each
+problem into English. Do not include solutions.
+
+Return one JSON object with a "sets" array. Each set has:
+- age_group: "junior" only for 8–9 classes/O-level, "senior" only for
+  10–11 classes/A-level, or null when the source does not establish it;
+- difficulty: "basic" only for базовый вариант/basic, "advanced" only for
+  сложный вариант/advanced, or null when the source does not establish it;
+- date: source date as YYYY-MM-DD, or null;
+- complete: true only if this unit contains the whole set;
+- questions: an array in source order. Each question has number (integer),
+  first_line and last_line (zero-based inclusive indexes into the supplied
+  source lines), points (a string preserving any subpart scores), author (the
+  source spelling), and english (the full problem statement in English).
+
+Keep mathematical notation, numbers, conditions, subparts, point values, and
+authors. Do not infer that тренировочный is basic or основной is advanced.
+For diagrams or figures, retain their source reference in the English text.
+Return an empty sets array for navigation, solutions, or unrelated material.
+Do not invent missing text. When a page continues a set from another page,
+set complete to false. Return JSON only.
